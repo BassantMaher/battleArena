@@ -70,9 +70,9 @@ defmodule TapGame.GameServer do
       {:ok, user} ->
         # If game is waiting, add player and potentially start countdown
         new_state = add_player(state, user)
-        
+
         # Start countdown if this is the first player and game is waiting
-        new_state = 
+        new_state =
           if map_size(state.players) == 0 and state.status == :waiting do
             schedule_countdown(new_state)
           else
@@ -102,7 +102,7 @@ defmodule TapGame.GameServer do
   @impl true
   def handle_cast({:record_tap, user_id}, state) do
     # Only record taps when game is playing
-    new_state = 
+    new_state =
       if state.status == :playing and Map.has_key?(state.players, user_id) do
         update_in(state.players[user_id].tap_count, &(&1 + 1))
       else
@@ -118,7 +118,7 @@ defmodule TapGame.GameServer do
 
   @impl true
   def handle_cast(:start_new_game, state) do
-    new_state = 
+    new_state =
       case state.status do
         :waiting -> schedule_countdown(state)
         :finished -> reset_and_start(state)
@@ -132,15 +132,15 @@ defmodule TapGame.GameServer do
   def handle_info(:start_countdown, state) do
     Logger.info("Starting countdown")
     game_start_time = DateTime.add(DateTime.utc_now(), @countdown_seconds, :second)
-    
-    new_state = %{state | 
+
+    new_state = %{state |
       status: :countdown,
       game_start_time: game_start_time,
       countdown_ref: nil
     }
 
     broadcast_state_change(new_state)
-    
+
     # Schedule the actual game start
     game_ref = Process.send_after(self(), :start_game, @countdown_seconds * 1000)
     new_state = %{new_state | game_ref: game_ref}
@@ -152,7 +152,7 @@ defmodule TapGame.GameServer do
   def handle_info(:start_game, state) do
     Logger.info("Starting game")
     game_end_time = DateTime.add(DateTime.utc_now(), @game_duration_seconds, :second)
-    
+
     # Create game sessions for all players
     Enum.each(state.players, fn {user_id, _player_data} ->
       Games.create_game_session(%{
@@ -163,14 +163,14 @@ defmodule TapGame.GameServer do
       })
     end)
 
-    new_state = %{state | 
+    new_state = %{state |
       status: :playing,
       game_end_time: game_end_time,
       game_ref: nil
     }
 
     broadcast_state_change(new_state)
-    
+
     # Schedule game end
     end_ref = Process.send_after(self(), :end_game, @game_duration_seconds * 1000)
     new_state = %{new_state | game_ref: end_ref}
@@ -181,7 +181,7 @@ defmodule TapGame.GameServer do
   @impl true
   def handle_info(:end_game, state) do
     Logger.info("Ending game")
-    
+
     # Save final scores to database
     Enum.each(state.players, fn {_user_id, player_data} ->
       # Find the game session for this user and update it
@@ -203,13 +203,13 @@ defmodule TapGame.GameServer do
       end
     end)
 
-    new_state = %{state | 
+    new_state = %{state |
       status: :finished,
       game_ref: nil
     }
 
     broadcast_state_change(new_state)
-    
+
     # Schedule reset after showing results
     Process.send_after(self(), :reset_game, 5000)
 
@@ -219,7 +219,7 @@ defmodule TapGame.GameServer do
   @impl true
   def handle_info(:reset_game, _state) do
     Logger.info("Resetting game")
-    
+
     new_state = %{
       status: :waiting,
       players: %{},
@@ -256,7 +256,7 @@ defmodule TapGame.GameServer do
   end
 
   defp reset_and_start(state) do
-    new_state = %{state | 
+    new_state = %{state |
       players: %{},
       game_start_time: nil,
       game_end_time: nil,
@@ -275,7 +275,7 @@ defmodule TapGame.GameServer do
         else
           @game_duration_seconds
         end
-      
+
       :countdown ->
         if state.game_start_time do
           DateTime.diff(state.game_start_time, DateTime.utc_now(), :millisecond)
@@ -284,7 +284,7 @@ defmodule TapGame.GameServer do
         else
           @countdown_seconds
         end
-      
+
       _ -> 0
     end
   end

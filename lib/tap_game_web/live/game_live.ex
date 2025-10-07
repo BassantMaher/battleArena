@@ -87,7 +87,7 @@ defmodule TapGameWeb.GameLive do
 
   @impl true
   def handle_info({:game_state_changed, game_state}, socket) do
-    leaderboard = 
+    leaderboard =
       if game_state.status == :finished do
         Games.get_leaderboard(10)
       else
