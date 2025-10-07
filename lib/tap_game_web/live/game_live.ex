@@ -1,28 +1,24 @@
 defmodule TapGameWeb.GameLive do
   use TapGameWeb, :live_view
 
-  alias TapGame.GameServer
+  alias TapGame.SessionManager
   alias TapGame.Games
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket) do
-      Phoenix.PubSub.subscribe(TapGame.PubSub, "game:lobby")
-      # Request current game state
-      send(self(), :update_game_state)
-    end
-
     {:ok,
      socket
      |> assign(:username, nil)
      |> assign(:user_id, nil)
+     |> assign(:session_id, nil)
      |> assign(:registered, false)
      |> assign(:game_state, %{
        status: :waiting,
        players: [],
        time_remaining: 0,
        game_start_time: nil,
-       game_end_time: nil
+       game_end_time: nil,
+       player_count: 0
      })
      |> assign(:leaderboard, [])
      |> assign(:username_error, nil)}
@@ -43,15 +39,27 @@ defmodule TapGameWeb.GameLive do
         {:noreply, assign(socket, :username_error, "Username must be less than 50 characters")}
 
       true ->
-        case GameServer.register_player(username) do
-          {:ok, user} ->
+        case SessionManager.register_player(username) do
+          {:ok, user, session_id} ->
+            # Subscribe to this specific session
+            if connected?(socket) do
+              Phoenix.PubSub.subscribe(TapGame.PubSub, "game:session:#{session_id}")
+            end
+
+            # Get initial session state
+            {:ok, game_state} = SessionManager.get_session_state(session_id)
+            leaderboard = Games.get_leaderboard(10)
+
             {:noreply,
              socket
              |> assign(:username, user.username)
              |> assign(:user_id, user.id)
+             |> assign(:session_id, session_id)
              |> assign(:registered, true)
              |> assign(:username_error, nil)
-             |> put_flash(:info, "Welcome, #{user.username}!")}
+             |> assign(:game_state, game_state)
+             |> assign(:leaderboard, leaderboard)
+             |> put_flash(:info, "Welcome, #{user.username}! Session: #{String.slice(session_id, 0..11)}...")}
 
           {:error, _changeset} ->
             {:noreply, assign(socket, :username_error, "Failed to register. Please try again.")}
@@ -62,31 +70,30 @@ defmodule TapGameWeb.GameLive do
   @impl true
   def handle_event("tap", _params, socket) do
     if socket.assigns.registered and socket.assigns.game_state.status == :playing do
-      GameServer.record_tap(socket.assigns.user_id)
-    end
+      SessionManager.record_tap(socket.assigns.session_id, socket.assigns.user_id)
 
-    {:noreply, socket}
+      # Immediately get updated state for responsive feedback
+      case SessionManager.get_session_state(socket.assigns.session_id) do
+        {:ok, game_state} ->
+          {:noreply, assign(socket, :game_state, game_state)}
+        _ ->
+          {:noreply, socket}
+      end
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
   def handle_event("start_game", _params, socket) do
-    GameServer.start_new_game()
+    if socket.assigns.registered and socket.assigns.session_id do
+      SessionManager.start_session_game(socket.assigns.session_id)
+    end
     {:noreply, socket}
   end
 
   @impl true
-  def handle_info(:update_game_state, socket) do
-    game_state = GameServer.get_game_state()
-    leaderboard = Games.get_leaderboard(10)
-
-    {:noreply,
-     socket
-     |> assign(:game_state, game_state)
-     |> assign(:leaderboard, leaderboard)}
-  end
-
-  @impl true
-  def handle_info({:game_state_changed, game_state}, socket) do
+  def handle_info({:session_state_changed, game_state}, socket) do
     leaderboard =
       if game_state.status == :finished do
         Games.get_leaderboard(10)
@@ -98,6 +105,15 @@ defmodule TapGameWeb.GameLive do
      socket
      |> assign(:game_state, game_state)
      |> assign(:leaderboard, leaderboard)}
+  end
+
+  @impl true
+  def terminate(_reason, socket) do
+    # Remove player from session when they disconnect
+    if socket.assigns.registered && socket.assigns.session_id do
+      SessionManager.remove_player(socket.assigns.session_id, socket.assigns.user_id)
+    end
+    :ok
   end
 
   @impl true
@@ -153,7 +169,7 @@ defmodule TapGameWeb.GameLive do
             <div class="lg:col-span-2 space-y-4 md:space-y-6">
               <!-- Status Card -->
               <div class="bg-white rounded-3xl p-6 md:p-8 shadow-lg border border-pink-100">
-                <div class="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
+                <div class="flex flex-col md:flex-row justify-between items-center gap-4 mb-4">
                   <div class="text-center md:text-left">
                     <p class="text-gray-500 text-sm mb-1">Playing as</p>
                     <p class="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-rose-600">
@@ -163,6 +179,21 @@ defmodule TapGameWeb.GameLive do
                   <div class="px-6 py-3 bg-gradient-to-r from-pink-100 to-rose-100 rounded-full">
                     <span class="font-bold text-pink-700">
                       <%= format_status(@game_state.status) %>
+                    </span>
+                  </div>
+                </div>
+                <!-- Session Info -->
+                <div class="flex justify-center gap-4 mb-6 text-xs">
+                  <div class="px-3 py-1.5 bg-gray-100 rounded-lg">
+                    <span class="text-gray-500">Session:</span>
+                    <span class="font-mono font-semibold text-gray-700 ml-1">
+                      <%= String.slice(@session_id, 0..11) %>...
+                    </span>
+                  </div>
+                  <div class="px-3 py-1.5 bg-pink-100 rounded-lg">
+                    <span class="text-pink-600">👥</span>
+                    <span class="font-bold text-pink-700 ml-1">
+                      <%= @game_state.player_count %> <%= if @game_state.player_count == 1, do: "player", else: "players" %>
                     </span>
                   </div>
                 </div>
@@ -201,7 +232,8 @@ defmodule TapGameWeb.GameLive do
                       </div>
                       <button
                         phx-click="tap"
-                        phx-throttle="50"
+                        phx-window-keydown="tap"
+                        phx-key="space"
                         class="w-full h-56 md:h-64 bg-gradient-to-br from-pink-400 via-rose-400 to-pink-500 text-white font-black text-4xl md:text-5xl rounded-3xl hover:from-pink-500 hover:via-rose-500 hover:to-pink-600 transition-all transform hover:scale-[1.02] active:scale-95 shadow-2xl shadow-pink-300/50 relative overflow-hidden group"
                       >
                         <span class="relative z-10">TAP ME! 👆</span>
@@ -308,16 +340,26 @@ defmodule TapGameWeb.GameLive do
               </div>
 
               <%= if @game_state.status in [:waiting, :finished] do %>
-                <button
-                  phx-click="start_game"
-                  class="w-full px-6 py-4 bg-gradient-to-r from-pink-500 to-rose-500 text-white font-bold rounded-2xl hover:from-pink-600 hover:to-rose-600 transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-pink-300/50"
-                >
-                  <%= if @game_state.status == :waiting do %>
-                    ⚡ Start Game Now
-                  <% else %>
-                    🔄 Play Again
-                  <% end %>
-                </button>
+                <%= if @game_state.player_count >= 2 do %>
+                  <button
+                    phx-click="start_game"
+                    class="w-full px-6 py-4 bg-gradient-to-r from-pink-500 to-rose-500 text-white font-bold rounded-2xl hover:from-pink-600 hover:to-rose-600 transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-pink-300/50"
+                  >
+                    <%= if @game_state.status == :waiting do %>
+                      ⚡ Start Game Now
+                    <% else %>
+                      🔄 Play Again
+                    <% end %>
+                  </button>
+                <% else %>
+                  <div class="w-full px-6 py-4 bg-gray-200 text-gray-500 font-bold rounded-2xl text-center cursor-not-allowed">
+                    <%= if @game_state.player_count == 0 do %>
+                      ⏳ Waiting for players...
+                    <% else %>
+                      👥 Need <%= 2 - @game_state.player_count %> more <%= if 2 - @game_state.player_count == 1, do: "player", else: "players" %>...
+                    <% end %>
+                  </div>
+                <% end %>
               <% end %>
 
               <!-- Info Card -->

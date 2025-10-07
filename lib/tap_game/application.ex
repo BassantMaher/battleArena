@@ -12,8 +12,8 @@ defmodule TapGame.Application do
       TapGame.Repo,
       {DNSCluster, query: Application.get_env(:tap_game, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: TapGame.PubSub},
-      # Start the game server
-      TapGame.GameServer,
+      # Start the session manager (manages multiple game sessions)
+      TapGame.SessionManager,
       # Start to serve requests, typically the last entry
       TapGameWeb.Endpoint
     ]
