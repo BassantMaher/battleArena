@@ -21,7 +21,8 @@ defmodule TapGameWeb.GameLive do
        player_count: 0
      })
      |> assign(:leaderboard, [])
-     |> assign(:username_error, nil)}
+     |> assign(:username_error, nil)
+     |> assign(:local_tap_count, 0)}
   end
 
   @impl true
@@ -68,16 +69,33 @@ defmodule TapGameWeb.GameLive do
   end
 
   @impl true
-  def handle_event("tap", _params, socket) do
+  def handle_event("tap_update", %{"count" => count}, socket) do
     if socket.assigns.registered and socket.assigns.game_state.status == :playing do
-      SessionManager.record_tap(socket.assigns.session_id, socket.assigns.user_id)
-
-      # Immediately get updated state for responsive feedback
-      case SessionManager.get_session_state(socket.assigns.session_id) do
-        {:ok, game_state} ->
-          {:noreply, assign(socket, :game_state, game_state)}
-        _ ->
-          {:noreply, socket}
+      # Calculate taps since last update
+      taps_to_add = count - socket.assigns.local_tap_count
+      
+      if taps_to_add > 0 do
+        # Send batch update to server
+        SessionManager.record_taps_batch(socket.assigns.session_id, socket.assigns.user_id, taps_to_add)
+        
+        # Update local game state immediately
+        updated_players = Enum.map(socket.assigns.game_state.players, fn player ->
+          if player.user_id == socket.assigns.user_id do
+            %{player | tap_count: count}
+          else
+            player
+          end
+        end)
+        # Re-sort by tap count
+        sorted_players = Enum.sort_by(updated_players, & &1.tap_count, :desc)
+        updated_game_state = %{socket.assigns.game_state | players: sorted_players}
+        
+        {:noreply, 
+         socket
+         |> assign(:local_tap_count, count)
+         |> assign(:game_state, updated_game_state)}
+      else
+        {:noreply, assign(socket, :local_tap_count, count)}
       end
     else
       {:noreply, socket}
@@ -101,10 +119,45 @@ defmodule TapGameWeb.GameLive do
         socket.assigns.leaderboard
       end
 
+    # Reset local tap count when new game starts
+    local_tap_count = 
+      if game_state.status == :playing and socket.assigns.game_state.status != :playing do
+        0
+      else
+        socket.assigns.local_tap_count
+      end
+
+    # Merge local tap count with server state for current user
+    updated_game_state = 
+      if game_state.status == :playing and socket.assigns.registered do
+        # Update current user's tap count to show local count (most up-to-date)
+        updated_players = Enum.map(game_state.players, fn player ->
+          if player.user_id == socket.assigns.user_id do
+            %{player | tap_count: max(player.tap_count, local_tap_count)}
+          else
+            player
+          end
+        end)
+        # Re-sort players by tap count
+        sorted_players = Enum.sort_by(updated_players, & &1.tap_count, :desc)
+        %{game_state | players: sorted_players}
+      else
+        game_state
+      end
+
+    # Notify JS hook of game state change
+    socket = 
+      if game_state.status != socket.assigns.game_state.status do
+        push_event(socket, "game_state_changed", %{status: Atom.to_string(game_state.status)})
+      else
+        socket
+      end
+
     {:noreply,
      socket
-     |> assign(:game_state, game_state)
-     |> assign(:leaderboard, leaderboard)}
+     |> assign(:game_state, updated_game_state)
+     |> assign(:leaderboard, leaderboard)
+     |> assign(:local_tap_count, local_tap_count)}
   end
 
   @impl true
@@ -231,18 +284,17 @@ defmodule TapGameWeb.GameLive do
                         </div>
                       </div>
                       <button
-                        phx-click="tap"
-                        phx-window-keydown="tap"
-                        phx-key="space"
-                        class="w-full h-56 md:h-64 bg-gradient-to-br from-pink-400 via-rose-400 to-pink-500 text-white font-black text-4xl md:text-5xl rounded-3xl hover:from-pink-500 hover:via-rose-500 hover:to-pink-600 transition-all transform hover:scale-[1.02] active:scale-95 shadow-2xl shadow-pink-300/50 relative overflow-hidden group"
+                        id="tap-btn"
+                        phx-hook="TapHandler"
+                        class="w-full h-56 md:h-64 bg-gradient-to-br from-pink-400 via-rose-400 to-pink-500 text-white font-black text-4xl md:text-5xl rounded-3xl hover:from-pink-500 hover:via-rose-500 hover:to-pink-600 transition-none transform hover:scale-[1.02] active:scale-95 shadow-2xl shadow-pink-300/50 relative overflow-hidden group cursor-pointer select-none"
                       >
                         <span class="relative z-10">TAP ME! 👆</span>
                         <div class="absolute inset-0 bg-gradient-to-t from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
                       </button>
-                      <div :if={get_player_taps(@game_state.players, @user_id)} class="mt-6 inline-block px-6 py-3 bg-pink-100 rounded-2xl">
+                      <div class="mt-6 inline-block px-6 py-3 bg-pink-100 rounded-2xl">
                         <span class="text-gray-600 text-sm font-semibold">Your Taps: </span>
-                        <span class="text-pink-600 text-3xl font-black ml-2">
-                          <%= get_player_taps(@game_state.players, @user_id) %>
+                        <span id="tap-count-display" class="text-pink-600 text-3xl font-black ml-2">
+                          <%= @local_tap_count %>
                         </span>
                       </div>
 

@@ -25,11 +25,80 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/tap_game"
 import topbar from "../vendor/topbar"
 
+// Custom Hooks
+let Hooks = {}
+
+Hooks.TapHandler = {
+  mounted() {
+    this.tapCount = 0
+    this.lastSent = 0
+    this.syncInterval = null
+    this.isPlaying = false
+
+    const sendUpdate = () => {
+      if (this.isPlaying && this.tapCount > this.lastSent) {
+        this.pushEvent("tap_update", { count: this.tapCount })
+        this.lastSent = this.tapCount
+      }
+    }
+
+    // Handle button clicks
+    this.el.addEventListener("click", (e) => {
+      if (this.isPlaying) {
+        e.preventDefault()
+        this.tapCount++
+        this.updateDisplay()
+        sendUpdate()
+      }
+    })
+
+    // Handle spacebar
+    this.handleKeyDown = (e) => {
+      if (this.isPlaying && (e.code === "Space" || e.key === " ")) {
+        e.preventDefault()
+        this.tapCount++
+        this.updateDisplay()
+        sendUpdate()
+      }
+    }
+    window.addEventListener("keydown", this.handleKeyDown)
+
+    // Periodic sync every 200ms for smooth updates
+    this.syncInterval = setInterval(sendUpdate, 200)
+
+    // Listen for game state changes
+    this.handleEvent("game_state_changed", ({ status }) => {
+      this.isPlaying = (status === "playing")
+      if (status === "playing") {
+        this.tapCount = 0
+        this.lastSent = 0
+      }
+    })
+  },
+
+  updateDisplay() {
+    // Update the tap count display element
+    const countEl = document.getElementById("tap-count-display")
+    if (countEl) {
+      countEl.textContent = this.tapCount
+    }
+  },
+
+  destroyed() {
+    if (this.syncInterval) {
+      clearInterval(this.syncInterval)
+    }
+    if (this.handleKeyDown) {
+      window.removeEventListener("keydown", this.handleKeyDown)
+    }
+  }
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks},
+  hooks: {...colocatedHooks, ...Hooks},
 })
 
 // Show progress bar on live navigation and form submits

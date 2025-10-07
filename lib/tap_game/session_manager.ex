@@ -30,10 +30,24 @@ defmodule TapGame.SessionManager do
   end
 
   @doc """
-  Record a tap for a player in their session.
+  Record a tap for a player in their session (synchronous).
   """
   def record_tap(session_id, user_id) do
     GenServer.call(__MODULE__, {:record_tap, session_id, user_id})
+  end
+
+  @doc """
+  Record a tap asynchronously for better performance.
+  """
+  def record_tap_async(session_id, user_id) do
+    GenServer.cast(__MODULE__, {:record_tap, session_id, user_id})
+  end
+
+  @doc """
+  Record multiple taps in a batch for optimal performance.
+  """
+  def record_taps_batch(session_id, user_id, tap_count) do
+    GenServer.cast(__MODULE__, {:record_taps_batch, session_id, user_id, tap_count})
   end
 
   @doc """
@@ -56,7 +70,8 @@ defmodule TapGame.SessionManager do
   def init(_opts) do
     state = %{
       sessions: %{},  # %{session_id => GameSession state}
-      user_sessions: %{}  # %{user_id => session_id} for quick lookup
+      user_sessions: %{},  # %{user_id => session_id} for quick lookup
+      pending_broadcasts: %{}  # %{session_id => true} for batched broadcasts
     }
 
     Logger.info("SessionManager started")
@@ -113,6 +128,51 @@ defmodule TapGame.SessionManager do
     end
 
     {:reply, :ok, new_state}
+  end
+
+  @impl true
+  def handle_cast({:record_tap, session_id, user_id}, state) do
+    new_state = update_in(state.sessions[session_id], fn session ->
+      if session do
+        GameSession.record_tap(session, user_id)
+      else
+        nil
+      end
+    end)
+
+    # Schedule a batched broadcast instead of immediate
+    schedule_broadcast(session_id)
+
+    {:noreply, new_state}
+  end
+
+  @impl true
+  def handle_cast({:record_taps_batch, session_id, user_id, tap_count}, state) do
+    new_state = update_in(state.sessions[session_id], fn session ->
+      if session do
+        GameSession.record_taps_batch(session, user_id, tap_count)
+      else
+        nil
+      end
+    end)
+
+    # Schedule a batched broadcast
+    schedule_broadcast(session_id)
+
+    {:noreply, new_state}
+  end
+
+  @impl true
+  def handle_info({:broadcast_state, session_id}, state) do
+    # Clear any pending broadcast flag
+    pending_broadcasts = Map.delete(Map.get(state, :pending_broadcasts, %{}), session_id)
+    new_state = Map.put(state, :pending_broadcasts, pending_broadcasts)
+
+    if new_state.sessions[session_id] do
+      broadcast_session_state(session_id, new_state.sessions[session_id])
+    end
+
+    {:noreply, new_state}
   end
 
   @impl true
@@ -235,6 +295,11 @@ defmodule TapGame.SessionManager do
 
   defp generate_session_id do
     "session_#{:crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)}"
+  end
+
+  defp schedule_broadcast(session_id) do
+    # Only schedule if not already pending - batches updates every 100ms
+    Process.send_after(self(), {:broadcast_state, session_id}, 100)
   end
 
   defp broadcast_session_state(session_id, session) do

@@ -75,6 +75,17 @@ defmodule TapGame.GameSession do
   end
 
   @doc """
+  Record multiple taps in a batch for a player.
+  """
+  def record_taps_batch(session, user_id, tap_count) do
+    if session.status == :playing && Map.has_key?(session.players, user_id) && tap_count > 0 do
+      update_in(session.players[user_id].tap_count, &(&1 + tap_count))
+    else
+      session
+    end
+  end
+
+  @doc """
   Handle session lifecycle events.
   """
   def handle_event(session, event) do
