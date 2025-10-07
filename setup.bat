@@ -53,6 +53,6 @@ echo To start the server, run:
 echo     mix phx.server
 echo.
 echo Then open your browser to:
-echo     http://localhost:4000
+echo     http://localhost:3000
 echo.
 echo ========================================

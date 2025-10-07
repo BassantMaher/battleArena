@@ -94,7 +94,7 @@ mix ecto.migrate
 mix phx.server
 ```
 
-The application will be available at [http://localhost:4000](http://localhost:4000)
+The application will be available at [http://localhost:3000](http://localhost:3000)
 
 ## Usage
 
@@ -229,7 +229,7 @@ mix test
 ### Test Multiple Players Locally
 
 1. Open multiple browser windows
-2. Navigate to `http://localhost:4000` in each
+2. Navigate to `http://localhost:3000` in each
 3. Use different usernames
 4. Verify synchronized gameplay
 
@@ -305,4 +305,4 @@ MIT License
 
 ## Author
 
-Built with ❤️ using Elixir and Phoenix LiveView
+

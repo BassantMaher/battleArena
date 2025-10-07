@@ -54,12 +54,12 @@ mix phx.server
 
 ## Access the Game
 
-Open your browser to: **http://localhost:4000**
+Open your browser to: **http://localhost:3000**
 
 ## Test Multi-Player
 
 1. Open multiple browser windows/tabs
-2. Go to `http://localhost:4000` in each
+2. Go to `http://localhost:3000` in each
 3. Enter different usernames
 4. Watch the synchronized countdown and play together!
 
@@ -74,7 +74,7 @@ mix ecto.create
 - Start PostgreSQL service
 - Check credentials in `config/dev.exs`
 
-### Port 4000 already in use
+### Port 3000 already in use
 - Kill the process or change port in `config/dev.exs`
 
 ## Features to Try

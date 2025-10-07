@@ -153,7 +153,7 @@ mix phx.server
 iex -S mix phx.server
 ```
 
-The application will be available at **http://localhost:4000**
+The application will be available at **http://localhost:3000**
 
 ---
 
@@ -161,7 +161,7 @@ The application will be available at **http://localhost:4000**
 
 ### Getting Started
 
-1. **Open the game** in your browser: `http://localhost:4000`
+1. **Open the game** in your browser: `http://localhost:3000`
 2. **Enter your username** (2-50 characters)
 3. **Wait for another player** to join (minimum 2 players required)
 4. **Click "Start Game"** when ready
@@ -581,7 +581,7 @@ Hooks.TapHandler = {
 # Start server
 mix phx.server
 
-# Open browser: http://localhost:4000
+# Open browser: http://localhost:3000
 # Enter username: "TestPlayer1"
 # Expected: "Need 1 more player..." displayed
 ```
@@ -667,8 +667,8 @@ mix ecto.create
 #### Port Already in Use
 
 ```bash
-# Find and kill process using port 4000
-lsof -ti:4000 | xargs kill -9
+# Find and kill process using port 3000
+lsof -ti:3000 | xargs kill -9
 
 # Or use different port
 PORT=4001 mix phx.server
@@ -688,7 +688,6 @@ mix assets.build
 
 <div align="center">
 
-**Made with ❤️ using Phoenix LiveView and Elixir**
 
 [Report Bug](https://github.com/BassantMaher/battleArena/issues) · [Request Feature](https://github.com/BassantMaher/battleArena/issues)
 
