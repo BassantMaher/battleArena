@@ -73,11 +73,11 @@ defmodule TapGameWeb.GameLive do
     if socket.assigns.registered and socket.assigns.game_state.status == :playing do
       # Calculate taps since last update
       taps_to_add = count - socket.assigns.local_tap_count
-      
+
       if taps_to_add > 0 do
         # Send batch update to server
         SessionManager.record_taps_batch(socket.assigns.session_id, socket.assigns.user_id, taps_to_add)
-        
+
         # Update local game state immediately
         updated_players = Enum.map(socket.assigns.game_state.players, fn player ->
           if player.user_id == socket.assigns.user_id do
@@ -89,8 +89,8 @@ defmodule TapGameWeb.GameLive do
         # Re-sort by tap count
         sorted_players = Enum.sort_by(updated_players, & &1.tap_count, :desc)
         updated_game_state = %{socket.assigns.game_state | players: sorted_players}
-        
-        {:noreply, 
+
+        {:noreply,
          socket
          |> assign(:local_tap_count, count)
          |> assign(:game_state, updated_game_state)}
@@ -120,7 +120,7 @@ defmodule TapGameWeb.GameLive do
       end
 
     # Reset local tap count when new game starts
-    local_tap_count = 
+    local_tap_count =
       if game_state.status == :playing and socket.assigns.game_state.status != :playing do
         0
       else
@@ -128,7 +128,7 @@ defmodule TapGameWeb.GameLive do
       end
 
     # Merge local tap count with server state for current user
-    updated_game_state = 
+    updated_game_state =
       if game_state.status == :playing and socket.assigns.registered do
         # Update current user's tap count to show local count (most up-to-date)
         updated_players = Enum.map(game_state.players, fn player ->
@@ -146,7 +146,7 @@ defmodule TapGameWeb.GameLive do
       end
 
     # Notify JS hook of game state change
-    socket = 
+    socket =
       if game_state.status != socket.assigns.game_state.status do
         push_event(socket, "game_state_changed", %{status: Atom.to_string(game_state.status)})
       else
